@@ -1,0 +1,12 @@
+[package]
+
+name = "fromxml"
+version = "1.0.0"
+authors = ["Tim Cameron Ryan <tim@technical.io>"]
+
+[lib]
+name = "fromxml"
+crate-type = ["rlib"]
+
+[dependencies]
+xml-rs = "0.1.4"
