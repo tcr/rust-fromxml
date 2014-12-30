@@ -3,11 +3,12 @@
 
 extern crate xml;
 
-use std::io::{File, BufferedReader};
-use std::num::{FromStrRadix};
+use std::io::Buffer;
+use std::num::FromStrRadix;
 
 use xml::reader::Events;
 use xml::reader::events::XmlEvent::*;
+use xml::common::Attribute;
 
 #[macro_export]
 macro_rules! deriving_fromxml {
@@ -33,19 +34,26 @@ macro_rules! deriving_fromxml {
         }
 
         impl ::fromxml::FromXml for $Id {
-            fn from_xml<'a>(iter:&'a mut ::xml::reader::Events<::std::io::BufferedReader<::std::io::File>>) -> Option<$Id> {
+            fn from_xml<'a, B: ::std::io::Buffer>(iter:&'a mut ::xml::reader::Events<B>, attributes:Vec<::xml::common::Attribute>) -> Option<$Id> {
                 #[allow(non_snake_case)]
                 struct TempStruct {
                     $($(#[$Flag_field])* $Flag:Option<$T>,)+
                 };
 
-                let stage = TempStruct {
+                let mut stage = TempStruct {
                     $($(#[$Flag_field])* $Flag: ::fromxml::Placeholder::hold(),)+
                 };
 
-                fn inner<'a> (iter:&'a mut ::xml::reader::Events<::std::io::BufferedReader<::std::io::File>>, arg:&mut TempStruct, name:&str) {
+                for attr in attributes.iter() {
+                    match attr.name.local_name.as_slice() {
+                        $($(#[$Flag_field])* stringify!($Flag) => stage.$Flag = ::fromxml::Placeholder::assign_attr(attr.value.clone()),)+
+                        _ => {},
+                    };
+                }
+
+                fn inner<'a, B: ::std::io::Buffer> (iter:&'a mut ::xml::reader::Events<B>, arg:&mut TempStruct, name:&str, attributes:Vec<::xml::common::Attribute>) {
                     match name {
-                        $($(#[$Flag_field])* stringify!($Flag) => ::fromxml::Placeholder::assign(&mut arg.$Flag, ::fromxml::FromXml::from_xml(iter)),)+
+                        $($(#[$Flag_field])* stringify!($Flag) => ::fromxml::Placeholder::assign(&mut arg.$Flag, ::fromxml::FromXml::from_xml(iter, attributes)),)+
                         _ => ::fromxml::skip_node(iter),
                     };
                 }
@@ -57,7 +65,7 @@ macro_rules! deriving_fromxml {
                 }
                 let stage = collected.unwrap();
 
-                let mut obj = $Id { ..Default::default() };
+                let mut obj = $Id { ..::std::default::Default::default() };
 
                 $($(#[$Flag_field])* 
                 match stage.$Flag {
@@ -74,9 +82,14 @@ macro_rules! deriving_fromxml {
 }
 
 pub trait Placeholder {
-    fn hold() -> Option<Self>;
+    fn hold() -> Option<Self> {
+        None
+    }
     fn assign(field:&mut Self, value:Self) {
         *field = value;
+    }
+    fn assign_attr(_:String) -> Option<Self> {
+        None
     }
 }
 
@@ -84,6 +97,7 @@ impl<T:Placeholder + Clone> Placeholder for Option<T> {
     fn hold() -> Option<Option<T>> {
         return Some(None)
     }
+
     fn assign(field:&mut Option<T>, value:Option<T>) {
         let mut result;
         match field {
@@ -102,6 +116,10 @@ impl<T:Placeholder + Clone> Placeholder for Option<T> {
         }
         *field = result;
     }
+
+    fn assign_attr(value:String) -> Option<Option<T>> {
+        Some(Placeholder::assign_attr(value))
+    }
 }
 
 impl<T:Clone> Placeholder for Vec<T> {
@@ -114,39 +132,25 @@ impl<T:Clone> Placeholder for Vec<T> {
 }
 
 impl Placeholder for u32 {
-    fn hold() -> Option<u32> {
-        return None
-    }
-    fn assign(field:&mut u32, value:u32) {
-        *field = value;
-    }
 }
 
 impl Placeholder for uint {
-    fn hold() -> Option<uint> {
-        return None
-    }
-    fn assign(field:&mut uint, value:uint) {
-        *field = value;
-    }
 }
 
 impl Placeholder for String {
-    fn hold() -> Option<String> {
-        return None
-    }
-    fn assign(field:&mut String, value:String) {
-        *field = value;
+    fn assign_attr(value:String) -> Option<String> {
+        Some(value)
     }
 }
 
-pub type XmlIter<'a> = Events<'a, BufferedReader<File>>;
+// E0122: pub type XmlIter<'a, B:Buffer> = Events<'a, B>;
+pub type XmlIter<'a, B> = Events<'a, B>;
 
-pub fn collect<'a, T>(iter:&'a mut XmlIter, mut arg:T, back:for<'b> fn(&'b mut XmlIter, &mut T, &str)) -> Option<T> {
+pub fn collect<'a, T, B:Buffer>(iter:&'a mut XmlIter<B>, mut arg:T, back:for<'b> fn(&'b mut XmlIter<B>, &mut T, &str, Vec<Attribute>)) -> Option<T> {
     loop {
         match iter.next() {
-            Some(StartElement { name, attributes: _, namespace: _ }) => {
-                back(iter, &mut arg, name.local_name.as_slice());
+            Some(StartElement { name, attributes, namespace: _ }) => {
+                back(iter, &mut arg, name.local_name.as_slice(), attributes);
             }
             Some(EndElement { name: _ }) => break,
             Some(Error(e)) => {
@@ -161,7 +165,7 @@ pub fn collect<'a, T>(iter:&'a mut XmlIter, mut arg:T, back:for<'b> fn(&'b mut X
     return Some(arg);
 }
 
-pub fn skip_node<'a>(iter:&'a mut XmlIter) {
+pub fn skip_node<'a, B:Buffer>(iter:&'a mut XmlIter<B>) {
     let mut depth:uint = 1;
     loop {
         match iter.next() {
@@ -186,26 +190,26 @@ pub fn skip_node<'a>(iter:&'a mut XmlIter) {
 }
 
 pub trait FromXml {
-    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<Self>;
+    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Self>;
 }
 
 impl<T:FromXml> FromXml for Vec<T> {
-    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<Vec<T>> {
+    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Vec<T>> {
         let mut ret:Vec<T> = vec![];
-        ret.push(FromXml::from_xml(iter).unwrap());
+        ret.push(FromXml::from_xml(iter, attributes).unwrap());
         Some(ret)
     }
 }
 
 impl<T:FromXml> FromXml for Option<T> {
-    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<Option<T>> {
-        Some(FromXml::from_xml(iter))
+    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Option<T>> {
+        Some(FromXml::from_xml(iter, attributes))
     }
 }
 
 impl FromXml for uint {
-    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<uint> {
-        FromXml::from_xml(iter).and_then(|s: String| {
+    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<uint> {
+        FromXml::from_xml(iter, attributes).and_then(|s: String| {
             if s.contains_char('x') {
                 FromStrRadix::from_str_radix(&*s.slice_from(2), 16)
             } else {
@@ -216,8 +220,8 @@ impl FromXml for uint {
 }
 
 impl FromXml for u32 {
-    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<u32> {
-        FromXml::from_xml(iter).and_then(|s: String| {
+    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<u32> {
+        FromXml::from_xml(iter, attributes).and_then(|s: String| {
             if s.contains_char('x') {
                 FromStrRadix::from_str_radix(&*s.slice_from(2), 16)
             } else {
@@ -228,7 +232,7 @@ impl FromXml for u32 {
 }
 
 impl FromXml for String {
-    fn from_xml<'a>(iter:&'a mut XmlIter) -> Option<String> {
+    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, _:Vec<Attribute>  ) -> Option<String> {
         let mut str = "".to_string();
         loop {
             match iter.next() {
@@ -241,11 +245,11 @@ impl FromXml for String {
     }
 }
 
-pub fn parse_root<'a, T:FromXml>(iter:&'a mut XmlIter) -> Option<T> {
+pub fn parse_root<'a, T:FromXml, B:Buffer>(iter:&'a mut XmlIter<B>) -> Option<T> {
     loop {
         match iter.next() {
-            Some(StartElement { name: _, attributes: _, namespace: _ }) => {
-                return FromXml::from_xml(iter);
+            Some(StartElement { name: _, attributes, namespace: _ }) => {
+                return FromXml::from_xml(iter, attributes);
             }
             Some(Error(e)) => {
                 println!("Error: {}", e);
