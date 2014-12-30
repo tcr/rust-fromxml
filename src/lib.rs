@@ -8,7 +8,7 @@ use std::num::FromStrRadix;
 
 use xml::reader::Events;
 use xml::reader::events::XmlEvent::*;
-use xml::common::Attribute;
+use xml::attribute::OwnedAttribute as Attribute;
 
 #[macro_export]
 macro_rules! deriving_fromxml {
@@ -34,7 +34,7 @@ macro_rules! deriving_fromxml {
         }
 
         impl ::fromxml::FromXml for $Id {
-            fn from_xml<'a, B: ::std::io::Buffer>(iter:&'a mut ::xml::reader::Events<B>, attributes:Vec<::xml::common::Attribute>) -> Option<$Id> {
+            fn from_xml<'a, B: ::std::io::Buffer>(iter:&'a mut ::xml::reader::Events<B>, attributes:Vec<::xml::attribute::OwnedAttribute>) -> Option<$Id> {
                 #[allow(non_snake_case)]
                 struct TempStruct {
                     $($(#[$Flag_field])* $Flag:Option<$T>,)+
@@ -51,7 +51,7 @@ macro_rules! deriving_fromxml {
                     };
                 }
 
-                fn inner<'a, B: ::std::io::Buffer> (iter:&'a mut ::xml::reader::Events<B>, arg:&mut TempStruct, name:&str, attributes:Vec<::xml::common::Attribute>) {
+                fn inner<'a, B: ::std::io::Buffer> (iter:&'a mut ::xml::reader::Events<B>, arg:&mut TempStruct, name:&str, attributes:Vec<::xml::attribute::OwnedAttribute>) {
                     match name {
                         $($(#[$Flag_field])* stringify!($Flag) => ::fromxml::Placeholder::assign(&mut arg.$Flag, ::fromxml::FromXml::from_xml(iter, attributes)),)+
                         _ => ::fromxml::skip_node(iter),
@@ -213,7 +213,7 @@ impl FromXml for uint {
             if s.contains_char('x') {
                 FromStrRadix::from_str_radix(&*s.slice_from(2), 16)
             } else {
-                from_str(&*s)
+                s.parse()
             }
         })
     }
@@ -225,7 +225,7 @@ impl FromXml for u32 {
             if s.contains_char('x') {
                 FromStrRadix::from_str_radix(&*s.slice_from(2), 16)
             } else {
-                from_str(&*s)
+                s.parse()
             }
         })
     }

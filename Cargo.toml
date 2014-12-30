@@ -13,4 +13,4 @@ name = "fromxml"
 crate-type = ["rlib"]
 
 [dependencies]
-xml-rs = "0.1.4"
+xml-rs = "0.1.5"
