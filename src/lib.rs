@@ -11,14 +11,14 @@ use xml::reader::events::XmlEvent::*;
 use xml::attribute::OwnedAttribute as Attribute;
 
 #[macro_export]
-macro_rules! deriving_fromxml {
+macro_rules! derive_fromxml {
     (
         $($(#[$attr:meta])* struct $Id:ident {
             $($(#[$Flag_field:meta])* $Flag:ident:$T:ty),+,
         })+
     ) => {
         $($(#[$attr])*
-        #[deriving(Default, Show, Clone)]
+        #[derive(Default, Show, Clone)]
         #[allow(non_snake_case)]
         pub struct $Id {
             $($(#[$Flag_field])* pub $Flag:$T,)+
@@ -81,7 +81,7 @@ macro_rules! deriving_fromxml {
     };
 }
 
-pub trait Placeholder {
+pub trait Placeholder : Sized {
     fn hold() -> Option<Self> {
         None
     }

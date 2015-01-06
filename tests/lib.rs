@@ -7,7 +7,7 @@ use std::borrow::ToOwned;
 
 use xml::reader::EventReader;
 
-deriving_fromxml! {
+derive_fromxml! {
     struct TestStruct {
         name:String,
         attr:Option<String>,
