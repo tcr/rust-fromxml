@@ -1,10 +1,13 @@
 #![feature(globs, macro_rules)]
-#![macro_escape]
+#![macro_use]
 
+extern crate core;
 extern crate xml;
 
-use std::io::Buffer;
+use std::io::*;
 use std::num::FromStrRadix;
+use std::str;
+use core::str::StrExt;
 
 use xml::reader::Events;
 use xml::reader::events::XmlEvent::*;
@@ -34,7 +37,7 @@ macro_rules! derive_fromxml {
         }
 
         impl ::fromxml::FromXml for $Id {
-            fn from_xml<'a, B: ::std::io::Buffer>(iter:&'a mut ::xml::reader::Events<B>, attributes:Vec<::xml::attribute::OwnedAttribute>) -> Option<$Id> {
+            fn from_xml<'a, B: ::std::old::BufRead>(iter:&'a mut ::xml::reader::Events<B>, attributes:Vec<::xml::attribute::OwnedAttribute>) -> Option<$Id> {
                 #[allow(non_snake_case)]
                 struct TempStruct {
                     $($(#[$Flag_field])* $Flag:Option<$T>,)+
@@ -51,7 +54,7 @@ macro_rules! derive_fromxml {
                     };
                 }
 
-                fn inner<'a, B: ::std::io::Buffer> (iter:&'a mut ::xml::reader::Events<B>, arg:&mut TempStruct, name:&str, attributes:Vec<::xml::attribute::OwnedAttribute>) {
+                fn inner<'a, B: ::std::io::BufRead> (iter:&'a mut ::xml::reader::Events<B>, arg:&mut TempStruct, name:&str, attributes:Vec<::xml::attribute::OwnedAttribute>) {
                     match name {
                         $($(#[$Flag_field])* stringify!($Flag) => ::fromxml::Placeholder::assign(&mut arg.$Flag, ::fromxml::FromXml::from_xml(iter, attributes)),)+
                         _ => ::fromxml::skip_node(iter),
@@ -134,7 +137,7 @@ impl<T:Clone> Placeholder for Vec<T> {
 impl Placeholder for u32 {
 }
 
-impl Placeholder for uint {
+impl Placeholder for usize {
 }
 
 impl Placeholder for String {
@@ -143,10 +146,10 @@ impl Placeholder for String {
     }
 }
 
-// E0122: pub type XmlIter<'a, B:Buffer> = Events<'a, B>;
+// E0122: pub type XmlIter<'a, B:BufRead> = Events<'a, B>;
 pub type XmlIter<'a, B> = Events<'a, B>;
 
-pub fn collect<'a, T, B:Buffer>(iter:&'a mut XmlIter<B>, mut arg:T, back:for<'b> fn(&'b mut XmlIter<B>, &mut T, &str, Vec<Attribute>)) -> Option<T> {
+pub fn collect<'a, T, B:BufRead>(iter:&'a mut XmlIter<B>, mut arg:T, back:for<'b> fn(&'b mut XmlIter<B>, &mut T, &str, Vec<Attribute>)) -> Option<T> {
     loop {
         match iter.next() {
             Some(StartElement { name, attributes, namespace: _ }) => {
@@ -165,8 +168,8 @@ pub fn collect<'a, T, B:Buffer>(iter:&'a mut XmlIter<B>, mut arg:T, back:for<'b>
     return Some(arg);
 }
 
-pub fn skip_node<'a, B:Buffer>(iter:&'a mut XmlIter<B>) {
-    let mut depth:uint = 1;
+pub fn skip_node<'a, B:BufRead>(iter:&'a mut XmlIter<B>) {
+    let mut depth:usize = 1;
     loop {
         match iter.next() {
             Some(StartElement { name: _, attributes: _, namespace: _ }) => {
@@ -190,11 +193,11 @@ pub fn skip_node<'a, B:Buffer>(iter:&'a mut XmlIter<B>) {
 }
 
 pub trait FromXml {
-    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Self>;
+    fn from_xml<'a, B:BufRead>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Self>;
 }
 
 impl<T:FromXml> FromXml for Vec<T> {
-    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Vec<T>> {
+    fn from_xml<'a, B:BufRead>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Vec<T>> {
         let mut ret:Vec<T> = vec![];
         ret.push(FromXml::from_xml(iter, attributes).unwrap());
         Some(ret)
@@ -202,16 +205,16 @@ impl<T:FromXml> FromXml for Vec<T> {
 }
 
 impl<T:FromXml> FromXml for Option<T> {
-    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Option<T>> {
+    fn from_xml<'a, B:BufRead>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<Option<T>> {
         Some(FromXml::from_xml(iter, attributes))
     }
 }
 
-impl FromXml for uint {
-    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<uint> {
+impl FromXml for usize {
+    fn from_xml<'a, B:BufRead>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<usize> {
         FromXml::from_xml(iter, attributes).and_then(|s: String| {
             if s.contains_char('x') {
-                FromStrRadix::from_str_radix(&*s.slice_from(2), 16)
+                FromStrRadix::from_str_radix(&s[2..], 16)
             } else {
                 s.parse()
             }
@@ -220,10 +223,10 @@ impl FromXml for uint {
 }
 
 impl FromXml for u32 {
-    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<u32> {
+    fn from_xml<'a, B:BufRead>(iter:&'a mut XmlIter<B>, attributes:Vec<Attribute>) -> Option<u32> {
         FromXml::from_xml(iter, attributes).and_then(|s: String| {
             if s.contains_char('x') {
-                FromStrRadix::from_str_radix(&*s.slice_from(2), 16)
+                FromStrRadix::from_str_radix(&s[2..], 16)
             } else {
                 s.parse()
             }
@@ -232,7 +235,7 @@ impl FromXml for u32 {
 }
 
 impl FromXml for String {
-    fn from_xml<'a, B:Buffer>(iter:&'a mut XmlIter<B>, _:Vec<Attribute>  ) -> Option<String> {
+    fn from_xml<'a, B:BufRead>(iter:&'a mut XmlIter<B>, _:Vec<Attribute>  ) -> Option<String> {
         let mut str = "".to_string();
         loop {
             match iter.next() {
@@ -245,7 +248,7 @@ impl FromXml for String {
     }
 }
 
-pub fn parse_root<'a, T:FromXml, B:Buffer>(iter:&'a mut XmlIter<B>) -> Option<T> {
+pub fn parse_root<'a, T:FromXml, B:BufRead>(iter:&'a mut XmlIter<B>) -> Option<T> {
     loop {
         match iter.next() {
             Some(StartElement { name: _, attributes, namespace: _ }) => {
